@@ -12,10 +12,10 @@ import javax.inject.Inject
 class WebRtcPlayerBuilder
 @Inject
 internal constructor(private val peerConnectionFactoryProvider: PeerConnectionFactoryProvider) {
-
     private val TAG = "WebRtcPlayerBuilder"
 
     private var signalingService: SignalingService? = null
+    private var microphonePermissionGranted: Boolean = false
 
     /**
      * Sets the [SignalingService] to use for the player.
@@ -30,11 +30,24 @@ internal constructor(private val peerConnectionFactoryProvider: PeerConnectionFa
     }
 
     /**
+     * Sets the microphone permission status.
+     *
+     * @param granted Whether the microphone permission is granted.
+     * @return This builder.
+     */
+    @CanIgnoreReturnValue
+    fun setMicrophonePermission(granted: Boolean): WebRtcPlayerBuilder {
+        this.microphonePermissionGranted = granted
+        return this
+    }
+
+    /**
      * Builds a [WebRtcPlayer] instance.
      *
      * @return The created [WebRtcPlayer], or null if creation fails.
      */
     fun build(): WebRtcPlayer? {
+        peerConnectionFactoryProvider.initializeFactory(microphonePermissionGranted)
         val peerConnectionFactory: PeerConnectionFactory =
             peerConnectionFactoryProvider.getPeerConnectionFactory()
         val rtcConfig = PeerConnection.RTCConfiguration(emptyList())

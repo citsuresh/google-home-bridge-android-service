@@ -15,25 +15,25 @@ import javax.inject.Singleton
 @Singleton
 class PeerConnectionFactoryProvider
 @Inject
-internal constructor(@ApplicationContext private val context: Context) {
+internal constructor(
+    @ApplicationContext private val context: Context
+) {
     private val eglBase = EglBase.create()
 
-    private lateinit var peerConnectionFactory: PeerConnectionFactory
-    private lateinit var audioDeviceModule: JavaAudioDeviceModule
+    private var peerConnectionFactory: PeerConnectionFactory? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
 
-    init {
-        initializeFactory()
-    }
-
-    private fun initializeFactory() {
-        Log.d(TAG, "Initializing PeerConnectionFactory")
+    fun initializeFactory(microphonePermissionGranted: Boolean) {
+        if (peerConnectionFactory != null) {
+            return
+        }
+        Log.d(TAG, "Initializing PeerConnectionFactory. Microphone permission granted: $microphonePermissionGranted")
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(context)
                 .setNativeLibraryName(NATIVE_LIBRARY_NAME)
                 .createInitializationOptions()
         )
 
-        audioDeviceModule = JavaAudioDeviceModule.builder(context).createAudioDeviceModule()
         val videoDecoderFactory = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
         val videoEncoderFactory =
             DefaultVideoEncoderFactory(
@@ -42,17 +42,24 @@ internal constructor(@ApplicationContext private val context: Context) {
                 /* enableH264HighProfile= */ true,
             )
 
-        peerConnectionFactory =
-            PeerConnectionFactory.builder()
-                .setAudioDeviceModule(audioDeviceModule)
-                .setVideoDecoderFactory(videoDecoderFactory)
-                .setVideoEncoderFactory(videoEncoderFactory)
-                .createPeerConnectionFactory()
+        val factoryBuilder = PeerConnectionFactory.builder()
+            .setVideoDecoderFactory(videoDecoderFactory)
+            .setVideoEncoderFactory(videoEncoderFactory)
+
+        if (microphonePermissionGranted) {
+            Log.d(TAG, "Microphone permission is granted. Initializing audio device module.")
+            audioDeviceModule = JavaAudioDeviceModule.builder(context).createAudioDeviceModule()
+            factoryBuilder.setAudioDeviceModule(audioDeviceModule)
+        } else {
+            Log.w(TAG, "Microphone permission not granted. Skipping audio device module initialization.")
+        }
+
+        peerConnectionFactory = factoryBuilder.createPeerConnectionFactory()
     }
 
     /** Returns the singleton instance of [PeerConnectionFactory]. */
     fun getPeerConnectionFactory(): PeerConnectionFactory {
-        return peerConnectionFactory
+        return checkNotNull(peerConnectionFactory) { "PeerConnectionFactory not initialized" }
     }
 
     /** Returns the singleton instance of [EglBase.Context]. */
@@ -61,7 +68,7 @@ internal constructor(@ApplicationContext private val context: Context) {
     }
 
     /** Returns the singleton instance of [JavaAudioDeviceModule]. */
-    fun getAudioDeviceModule(): JavaAudioDeviceModule {
+    fun getAudioDeviceModule(): JavaAudioDeviceModule? {
         return audioDeviceModule
     }
 

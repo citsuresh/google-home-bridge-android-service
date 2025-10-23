@@ -26,20 +26,26 @@ import com.example.googlehomeapisampleapp.viewmodel.automations.AutomationViewMo
 import com.example.googlehomeapisampleapp.viewmodel.automations.CandidateViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.DraftViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
-import com.example.googlehomeapisampleapp.viewmodel.structures.StructureViewModel
+import com.example.googlehomeapisampleapp.viewmodel.hubs.HubDiscoveryViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.RoomViewModel
+import com.example.googlehomeapisampleapp.viewmodel.structures.StructureViewModel
 import com.google.home.Structure
 import com.google.home.automation.CommandCandidate
 import com.google.home.automation.DraftAutomation
 import com.google.home.automation.NodeCandidate
 import com.google.home.automation.UnknownDeviceType
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.launch
 
 class HomeAppViewModel (val homeApp: HomeApp) : ViewModel() {
 
@@ -62,6 +68,12 @@ class HomeAppViewModel (val homeApp: HomeApp) : ViewModel() {
     // Container to store returned structures from the app:
     var structureVMs: MutableStateFlow<List<StructureViewModel>>
 
+    private var hubDiscoveryVM: HubDiscoveryViewModel
+    val hubDiscoveryViewModel: HubDiscoveryViewModel
+        get() = hubDiscoveryVM
+
+    private var selectedStructureFlow: Flow<Structure>
+
     init {
         // Initialize the active tab to show the devices:
         selectedTab = MutableStateFlow(NavigationTab.DEVICES)
@@ -73,8 +85,33 @@ class HomeAppViewModel (val homeApp: HomeApp) : ViewModel() {
         selectedDraftVM = MutableStateFlow(null)
         selectedCandidateVMs = MutableStateFlow(null)
 
-        // Initialize the container to store structures:
         structureVMs = MutableStateFlow(mutableListOf())
+
+        selectedStructureFlow = selectedStructureVM
+            .filterNotNull()
+            .map { it.structure }
+            .shareIn(
+                scope = viewModelScope,
+                started = SharingStarted.Eagerly,
+                replay = 1
+            )
+
+
+        val errorsEmitter: MutableSharedFlow<Exception> = MutableSharedFlow(
+            replay = 0,
+            extraBufferCapacity = 0
+        )
+        val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+
+
+        // HubDiscoveryViewModel now consumes the derived selectedStructureFlow
+        hubDiscoveryVM = HubDiscoveryViewModel(
+            structureFlow = selectedStructureFlow,
+            viewModelScope = viewModelScope,
+            errorsEmitter = errorsEmitter,
+            ioDispatcher = ioDispatcher
+        )
+
 
         viewModelScope.launch {
             // If permissions flow is completed, subscribe to changes on structures:
@@ -106,6 +143,19 @@ class HomeAppViewModel (val homeApp: HomeApp) : ViewModel() {
                 selectedStructureVM.emit(structureVMList.first())
 
         }
+    }
+
+    /**
+     * Reports an error message to the UI layer via the main logger.
+     * This is used when an error occurs outside of the standard flow emission (e.g., in onActivityResult).
+     */
+    fun handleActivationFailure(resultCode: Int) {
+        val errorMessage = "Hub activation failed with result code: $resultCode"
+        MainActivity.showError(this, errorMessage)
+    }
+
+    fun startHubDiscovery() {
+        hubDiscoveryVM.startDiscovery()
     }
 
     fun showCandidates() {

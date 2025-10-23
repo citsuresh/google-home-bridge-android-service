@@ -10,7 +10,12 @@ interface LiveStreamPlayerFactory {
      *
      * @param device The device to create stream for
      * @param scope The [CoroutineScope] to use for the player.
+     * @param microphonePermissionGranted Whether the microphone permission is granted.
      * @return The created [LiveStreamPlayer], or null if creation fails.
      */
-    suspend fun createPlayerFromDevice(device: HomeDevice, scope: CoroutineScope): LiveStreamPlayer?
+    suspend fun createPlayerFromDevice(
+        device: HomeDevice,
+        scope: CoroutineScope,
+        microphonePermissionGranted: Boolean,
+    ): LiveStreamPlayer?
 }

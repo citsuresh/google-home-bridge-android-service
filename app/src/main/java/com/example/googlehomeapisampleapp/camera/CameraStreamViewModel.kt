@@ -69,8 +69,12 @@ internal constructor(
 ) : ViewModel() {
 
     private val _targetDeviceId = MutableStateFlow<String?>(null)
+    private val _microphonePermissionGranted = MutableStateFlow(false)
 
-    fun initialize(id: String) { _targetDeviceId.value = id }
+    fun initialize(id: String, microphonePermissionGranted: Boolean) {
+        _targetDeviceId.value = id
+        _microphonePermissionGranted.value = microphonePermissionGranted
+    }
 
     /** The surface that is used to render the camera stream. */
     private var surface: Surface? = null
@@ -173,7 +177,11 @@ internal constructor(
         }
 
         // Player setup (Create but don't start yet)
-        val player = liveStreamPlayerFactory.createPlayerFromDevice(device, viewModelScope)
+        val player = liveStreamPlayerFactory.createPlayerFromDevice(
+            device,
+            viewModelScope,
+            _microphonePermissionGranted.value
+        )
         if (player == null) {
             _errorMessage.value = "Failed to create player for device"
             _state.value = CameraStreamState.ERROR
@@ -216,7 +224,11 @@ internal constructor(
         }
 
         // 1. Player setup
-        val player = liveStreamPlayerFactory.createPlayerFromDevice(device, viewModelScope)
+        val player = liveStreamPlayerFactory.createPlayerFromDevice(
+            device,
+            viewModelScope,
+            _microphonePermissionGranted.value
+        )
         if (player == null) {
             _errorMessage.value = "Failed to create player for device"
             _state.value = CameraStreamState.ERROR
@@ -359,7 +371,11 @@ internal constructor(
         Log.d(TAG, "startPlayer for ID: $deviceId")
         val device = getCameraDevice(deviceId)
 
-        val player = liveStreamPlayerFactory.createPlayerFromDevice(device, viewModelScope)
+        val player = liveStreamPlayerFactory.createPlayerFromDevice(
+            device,
+            viewModelScope,
+            _microphonePermissionGranted.value
+        )
         if (player == null) {
             _errorMessage.value = "Failed to create player for device"
             _state.value = CameraStreamState.ERROR

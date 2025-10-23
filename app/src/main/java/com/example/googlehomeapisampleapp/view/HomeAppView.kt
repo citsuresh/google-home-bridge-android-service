@@ -15,6 +15,8 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.view
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +36,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -43,9 +46,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewModelScope
 import com.example.googlehomeapisampleapp.ui.theme.GoogleHomeAPISampleAppTheme
 import com.example.googlehomeapisampleapp.view.automations.ActionView
@@ -56,6 +62,7 @@ import com.example.googlehomeapisampleapp.view.automations.DraftView
 import com.example.googlehomeapisampleapp.view.automations.StarterView
 import com.example.googlehomeapisampleapp.view.devices.DeviceView
 import com.example.googlehomeapisampleapp.view.devices.DevicesView
+import com.example.googlehomeapisampleapp.view.hubs.HubDiscoveryView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.ActionViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.AutomationViewModel
@@ -85,6 +92,29 @@ fun HomeAppView (homeAppVM: HomeAppViewModel) {
     val showCreateRoom = remember { mutableStateOf(false) }
     val roomSettingsFor = remember { mutableStateOf<RoomViewModel?>(null) }
     val moveDeviceFor = remember { mutableStateOf<DeviceViewModel?>(null) }
+    val launchHubDiscovery = remember { mutableStateOf(false) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    val hubActivationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+        onResult = { result ->
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                scope.launch { snackbarHostState.showSnackbar("Hub activation process completed.") }
+            } else {
+                homeAppVM.handleActivationFailure(result.resultCode)
+                scope.launch { snackbarHostState.showSnackbar("Hub activation cancelled or failed.") }
+            }
+            launchHubDiscovery.value = false
+        }
+    )
+
+    LaunchedEffect(true) {
+        homeAppVM.hubDiscoveryViewModel.hubActivationIntentFlow.collect { intent ->
+            hubActivationLauncher.launch(intent)
+        }
+    }
 
     /**
      * Periodically refreshes permissions while the user is signed in.
@@ -153,7 +183,8 @@ fun HomeAppView (homeAppVM: HomeAppViewModel) {
                         homeAppVM = homeAppVM,
                         onRequestCreateRoom = { showCreateRoom.value = true },
                         onRequestRoomSettings = { room -> roomSettingsFor.value = room },
-                        onRequestMoveDevice = { device -> moveDeviceFor.value = device }
+                        onRequestMoveDevice = { device -> moveDeviceFor.value = device },
+                        onRequestAddHub = { homeAppVM.startHubDiscovery(); launchHubDiscovery.value = true}
                     )
                     HomeAppViewModel.NavigationTab.AUTOMATIONS -> AutomationsView(homeAppVM)
                 }
@@ -282,6 +313,18 @@ fun HomeAppView (homeAppVM: HomeAppViewModel) {
                         Spacer(Modifier.height(8.dp))
                         TextButton(onClick = { moveDeviceFor.value = null }) { Text("Close") }
                     }
+                }
+            }
+
+            if (launchHubDiscovery.value) {
+                Dialog(
+                    onDismissRequest = { launchHubDiscovery.value = false },
+                    properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
+                ) {
+                    HubDiscoveryView(
+                        hubDiscoveryViewModel = homeAppVM.hubDiscoveryViewModel,
+                        modifier = Modifier.padding(16.dp),
+                    )
                 }
             }
         }

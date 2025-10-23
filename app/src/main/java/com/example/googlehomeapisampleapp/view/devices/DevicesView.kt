@@ -15,8 +15,12 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.view.devices
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +35,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,14 +68,6 @@ import com.example.googlehomeapisampleapp.viewmodel.structures.RoomViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.StructureViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import android.content.Intent
-import android.net.Uri
-import android.util.Log
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun DevicesAccountButton (homeAppVM: HomeAppViewModel) {
@@ -122,7 +121,8 @@ fun DevicesView(
     homeAppVM: HomeAppViewModel,
     onRequestCreateRoom: () -> Unit = {},
     onRequestRoomSettings: (RoomViewModel) -> Unit = {},
-    onRequestMoveDevice: (DeviceViewModel) -> Unit = {}
+    onRequestMoveDevice: (DeviceViewModel) -> Unit = {},
+    onRequestAddHub: () -> Unit = {}
 ) {
     val scope: CoroutineScope = rememberCoroutineScope()
 
@@ -150,6 +150,13 @@ fun DevicesView(
                         onClick = {
                             plusMenuExpanded = false
                             onRequestCreateRoom()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add Hub") },
+                        onClick = {
+                            plusMenuExpanded = false
+                            onRequestAddHub()
                         }
                     )
                 }

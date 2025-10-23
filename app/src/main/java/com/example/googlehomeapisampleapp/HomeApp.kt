@@ -32,6 +32,7 @@ import com.google.home.google.AssistantBroadcast
 import com.google.home.google.AssistantFulfillment
 import com.google.home.google.GoogleCameraDevice
 import com.google.home.google.GoogleDisplayDevice
+import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.google.GoogleTVDevice
 import com.google.home.google.Notification
 import com.google.home.google.PushAvStreamTransport
@@ -93,13 +94,14 @@ class HomeApp(val context: Context, val scope: CoroutineScope, val activity : Co
     companion object {
         // List of supported device types by this app:
         val supportedTypes: List<DeviceTypeFactory<out DeviceType>> = listOf(
-            GoogleCameraDevice,
-            ContactSensorDevice,
             ColorTemperatureLightDevice,
+            ContactSensorDevice,
             DimmableLightDevice,
             ExtendedColorLightDevice,
             GenericSwitchDevice,
+            GoogleCameraDevice,
             GoogleDisplayDevice,
+            GoogleDoorbellDevice,
             GoogleTVDevice,
             OccupancySensorDevice,
             OnOffLightDevice,
@@ -120,16 +122,16 @@ class HomeApp(val context: Context, val scope: CoroutineScope, val activity : Co
             AssistantFulfillment,
             BasicInformation,
             BooleanState,
+            LevelControl,
+            Notification,
             OccupancySensing,
             OnOff,
-            Notification,
-            LevelControl,
+            PushAvStreamTransport,
             TemperatureControl,
             TemperatureMeasurement,
             Thermostat,
             Time,
             Volume,
-            PushAvStreamTransport,
             WebRtcLiveView
         )
     }

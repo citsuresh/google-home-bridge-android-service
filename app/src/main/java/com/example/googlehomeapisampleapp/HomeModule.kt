@@ -1,7 +1,6 @@
 package com.example.googlehomeapisampleapp
 
 import android.content.Context
-import com.example.googlehomeapisampleapp.HomeClientProvider
 import com.google.home.DeviceType
 import com.google.home.DeviceTypeFactory
 import com.google.home.FactoryRegistry

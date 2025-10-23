@@ -30,6 +30,9 @@ import com.google.home.TraitFactory
 import com.google.home.automation.UnknownDeviceType
 import com.google.home.google.GoogleCameraDevice
 import com.google.home.google.GoogleDisplayDevice
+import com.google.home.google.GoogleDoorbellDevice
+import com.google.home.google.WebRtcLiveView
+import com.google.home.matter.standard.BasicInformation
 import com.google.home.matter.standard.BooleanState
 import com.google.home.matter.standard.ColorTemperatureLightDevice
 import com.google.home.matter.standard.ContactSensorDevice
@@ -44,6 +47,7 @@ import com.google.home.matter.standard.OnOffLightDevice
 import com.google.home.matter.standard.OnOffLightSwitchDevice
 import com.google.home.matter.standard.OnOffPluginUnitDevice
 import com.google.home.matter.standard.OnOffSensorDevice
+import com.google.home.matter.standard.SpeakerDevice
 import com.google.home.matter.standard.Thermostat
 import com.google.home.matter.standard.ThermostatDevice
 import kotlinx.coroutines.delay
@@ -139,25 +143,29 @@ class DeviceViewModel (val device: HomeDevice) : ViewModel() {
     private suspend fun subscribeToType() {
         // Subscribe to changes on device type, and the traits/attributes within:
         device.types().collect { typeSet ->
-            // Container for the primary type for this device:
-            var primaryType : DeviceType = UnknownDeviceType()
+            // Define the fallback priority order in one place.
+            // This is easy to read and modify.
+            val fallbackPriorityOrder = listOf(
+                GoogleDoorbellDevice::class,
+                GoogleCameraDevice::class,
+                OnOffLightDevice::class
+            )
 
-            // Among all the types returned for this device, find the primary one:
-            for (typeInSet in typeSet) {
-                if (typeInSet.metadata.isPrimaryType) {
-                    primaryType = typeInSet
-                } // workaround for devices that didn't mark primary types
-                else if (typeInSet is GoogleCameraDevice) {
-                    primaryType = typeInSet
-                } else if (typeInSet is OnOffLightDevice) {
-                    primaryType = typeInSet
-                }
-            }
-
-            // Optional: For devices with a single type that did not define a primary:
-            if (primaryType is UnknownDeviceType && typeSet.size == 1) {
-                primaryType = typeSet.first()
-            }
+            // Find the primary type in a single, chained expression.
+            val primaryType =
+                // 1. First, try to find the officially marked primary type.
+                typeSet.find { it.metadata.isPrimaryType }
+                // 2. If not found, use the fallback priority list.
+                    ?: fallbackPriorityOrder
+                        .asSequence() // Use a sequence for efficiency (stops after first match)
+                        .mapNotNull { priorityClass ->
+                            typeSet.find { priorityClass.isInstance(it) }
+                        }
+                        .firstOrNull()
+                    // 3. If still not found, use the first (and only) type if there's exactly one.
+                    ?: typeSet.singleOrNull()
+                    // 4. If all else fails, default to UnknownDeviceType.
+                    ?: UnknownDeviceType()
 
             // Set the connectivityState from the primary device type:
             connectivity = primaryType.metadata.sourceConnectivity.connectivityState
@@ -192,36 +200,40 @@ class DeviceViewModel (val device: HomeDevice) : ViewModel() {
     companion object {
         // Map determining which trait value is going to be displayed as status for this device:
         val statusMap: Map <DeviceTypeFactory<out DeviceType>, TraitFactory<out Trait>> = mapOf(
-            OnOffLightDevice to OnOff,
-            DimmableLightDevice to OnOff,
             ColorTemperatureLightDevice to OnOff,
+            ContactSensorDevice to BooleanState,
+            DimmableLightDevice to OnOff,
             ExtendedColorLightDevice to OnOff,
             GenericSwitchDevice to OnOff,
+            GoogleCameraDevice to WebRtcLiveView,
+            GoogleDisplayDevice to OnOff,
+            GoogleDoorbellDevice to WebRtcLiveView,
+            OccupancySensorDevice to OccupancySensing,
+            OnOffLightDevice to OnOff,
             OnOffLightSwitchDevice to OnOff,
             OnOffPluginUnitDevice to OnOff,
             OnOffSensorDevice to OnOff,
-            ContactSensorDevice to BooleanState,
-            OccupancySensorDevice to OccupancySensing,
+            SpeakerDevice to LevelControl,
             ThermostatDevice to Thermostat,
-            GoogleCameraDevice to OnOff,
-            GoogleDisplayDevice to OnOff,
         )
 
         // Map determining the user readable value for this device:
         val nameMap: Map <DeviceTypeFactory<out DeviceType>, String> = mapOf(
-            OnOffLightDevice to "Light",
-            DimmableLightDevice to "Light",
             ColorTemperatureLightDevice to "Light",
+            ContactSensorDevice to "Sensor",
+            DimmableLightDevice to "Light",
             ExtendedColorLightDevice to "Light",
             GenericSwitchDevice to "Switch",
+            GoogleCameraDevice to "Camera",
+            GoogleDisplayDevice to "Hub",
+            GoogleDoorbellDevice to "Doorbell",
+            OccupancySensorDevice to "Sensor",
+            OnOffLightDevice to "Light",
             OnOffLightSwitchDevice to "Switch",
             OnOffPluginUnitDevice to "Outlet",
             OnOffSensorDevice to "Sensor",
-            ContactSensorDevice to "Sensor",
-            OccupancySensorDevice to "Sensor",
+            SpeakerDevice to "Speaker",
             ThermostatDevice to "Thermostat",
-            GoogleCameraDevice to "Camera",
-            GoogleDisplayDevice to "Hub"
         )
 
         fun <T : Trait?> getDeviceStatus(type: DeviceType, traits : List<T>, connectivity: ConnectivityState) : String {
@@ -246,9 +258,6 @@ class DeviceViewModel (val device: HomeDevice) : ViewModel() {
 
         fun <T : Trait?> getTraitStatus(trait : T, type: DeviceType) : String {
             val status : String = when (trait) {
-                is OnOff -> { if (trait.onOff == true) "On" else "Off" }
-                is LevelControl -> { trait.currentLevel.toString() }
-                is OccupancySensing -> { if (trait.occupancy?.occupied == true) "Occupied" else "Unoccupied" }
                 is BooleanState -> {
                     // BooleanState is special, where the state gains meaning based on the device type:
                     when (type.factory) {
@@ -262,8 +271,12 @@ class DeviceViewModel (val device: HomeDevice) : ViewModel() {
                         }
                     }
                 }
+                is LevelControl -> { trait.currentLevel.toString() }
+                is OccupancySensing -> { if (trait.occupancy?.occupied == true) "Occupied" else "Unoccupied" }
+                is OnOff -> { if (trait.onOff == true) "On" else "Off" }
                 is Thermostat -> { trait.systemMode.toString() }
-                else -> ""
+                is WebRtcLiveView -> { "Live view supported" }
+                else -> "Unknown"
             }
             return status
         }

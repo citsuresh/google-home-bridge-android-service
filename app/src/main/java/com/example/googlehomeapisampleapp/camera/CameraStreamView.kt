@@ -5,6 +5,9 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -48,6 +51,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.googlehomeapisampleapp.RuntimePermissionsManager
 
 /**
  * View for displaying the camera stream and controls.
@@ -69,11 +73,36 @@ fun CameraStreamView(
     var showBottomSheet by remember { mutableStateOf(false) }
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onResume() }
+    // State to hold the microphone permission status
+    var microphonePermissionGranted by remember { mutableStateOf(false) }
+
+    // Activity Result Launcher for permission requests
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            microphonePermissionGranted = isGranted
+            if (!isGranted) {
+                onShowSnackbar("Microphone permission denied. Talkback will not be available.")
+            }
+        }
+    )
+
+    // Permissions Manager
+    val activity = LocalContext.current as ComponentActivity
+    val permissionsManager = remember {
+        RuntimePermissionsManager(activity, launcher) { isGranted ->
+            microphonePermissionGranted = isGranted
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onResume()
+        permissionsManager.checkMicrophonePermission()
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.onPause() }
 
-    LaunchedEffect(deviceId) {
-        viewModel.initialize(deviceId)
+    LaunchedEffect(deviceId, microphonePermissionGranted) {
+        viewModel.initialize(deviceId, microphonePermissionGranted)
     }
 
     LaunchedEffect(errorMessage) {
@@ -94,7 +123,7 @@ fun CameraStreamView(
 
     Scaffold(
         modifier =
-            Modifier.padding(paddingValues = paddingValues).fillMaxSize().testTag("CameraStreamScreen"),
+        Modifier.padding(paddingValues = paddingValues).fillMaxSize().testTag("CameraStreamScreen"),
         floatingActionButton = {
             FloatingActionButton(onClick = { showBottomSheet = true }, shape = CircleShape) {
                 Icon(imageVector = Icons.Filled.Menu, contentDescription = "Open Menu")
@@ -149,11 +178,21 @@ fun CameraStreamView(
                             trailingContent = {
                                 Switch(
                                     checked = isTalkbackEnabled,
-                                    onCheckedChange = { isEnabled -> viewModel.setTalkback(isEnabled) },
+                                    onCheckedChange = { isEnabled ->
+                                        if (isEnabled) {
+                                            if (microphonePermissionGranted) {
+                                                viewModel.setTalkback(true)
+                                            } else {
+                                                permissionsManager.requestMicrophonePermission()
+                                            }
+                                        } else {
+                                            viewModel.setTalkback(false)
+                                        }
+                                    },
                                     enabled =
-                                        !isToggleTalkbackInProgress &&
-                                                !isToggleRecordingInProgress &&
-                                                isCurrentlyStreaming,
+                                    !isToggleTalkbackInProgress &&
+                                            !isToggleRecordingInProgress &&
+                                            isCurrentlyStreaming,
                                 )
                             },
                         )
@@ -186,7 +225,6 @@ fun CameraStreamView(
         }
     }
 }
-
 @Composable
 fun CameraStreamPlayer(
     playerState: CameraStreamState,

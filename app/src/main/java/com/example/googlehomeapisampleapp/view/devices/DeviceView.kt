@@ -1,4 +1,3 @@
-
 /* Copyright 2025 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -84,6 +83,7 @@ import com.google.home.DeviceType
 import com.google.home.HomeException
 import com.google.home.Trait
 import com.google.home.google.GoogleCameraDevice
+import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.matter.standard.BooleanState
 import com.google.home.matter.standard.LevelControl
 import com.google.home.matter.standard.LevelControlTrait
@@ -106,9 +106,10 @@ fun DeviceView (homeAppVM: HomeAppViewModel) {
 
     deviceVM?.let { vm ->
         val context = LocalContext.current
-
-        // Check if the selected device is a camera
-        val isCameraDevice = vm.type.collectAsState().value.factory == GoogleCameraDevice
+        // Check if the selected device is a camera or a doorbell
+        val deviceType = vm.type.collectAsState().value
+        val isCameraDevice = deviceType.factory == GoogleCameraDevice
+        val isDoorbellDevice = deviceType.factory == GoogleDoorbellDevice
 
         // Placeholder for the onShowSnackbar lambda required by CameraStreamView
         val onShowSnackbar: (String) -> Unit = { message ->
@@ -136,12 +137,12 @@ fun DeviceView (homeAppVM: HomeAppViewModel) {
 
         Column {
             Spacer(Modifier.height(64.dp))
-            if (isCameraDevice) {
+            if (isCameraDevice || isDoorbellDevice) {
                 BackHandler {
                     scope.launch { homeAppVM.selectedDeviceVM.emit(null) }
                 }
                 deviceVM?.let {vm ->
-                    // For a camera, render the dedicated CameraStreamView immediately
+                    // For a camera, doorbell,  render the dedicated CameraStreamView immediately
                     CameraStreamView(
                         deviceId = vm.id,
                         paddingValues = PaddingValues(0.dp),

@@ -1,6 +1,5 @@
 package com.example.googlehomeapisampleapp.camera.livestreamplayer
 
-
 import android.util.Log
 import com.google.home.HomeDevice
 import com.google.home.google.WebRtcLiveView
@@ -27,12 +26,11 @@ internal constructor(
     override suspend fun createPlayerFromDevice(
         device: HomeDevice,
         scope: CoroutineScope,
+        microphonePermissionGranted: Boolean,
     ): LiveStreamPlayer? {
-
         if (device.has(WebRtcLiveView)) {
-            return createPlayerFromWebRtcLiveView(device, scope)
+            return createPlayerFromWebRtcLiveView(device, scope, microphonePermissionGranted)
         }
-
         Log.e(TAG, "No supported camera trait found on device ${device.id}")
         return null
     }
@@ -44,11 +42,18 @@ internal constructor(
      * @param scope The [CoroutineScope] to use for the player.
      * @return The created [LiveStreamPlayer], or null if creation fails.
      */
-    fun createPlayerFromWebRtcLiveView(device: HomeDevice, scope: CoroutineScope): LiveStreamPlayer? {
+    private fun createPlayerFromWebRtcLiveView(
+        device: HomeDevice,
+        scope: CoroutineScope,
+        microphonePermissionGranted: Boolean,
+    ): LiveStreamPlayer? {
         Log.i(TAG, "createPlayerFromWebRtcLiveView")
         val signalingService =
             signalingServiceFactoryProvider.get().createWebRtcLiveViewTraitSignalingService(device, scope)
-        return webRtcPlayerBuilderProvider.get().apply { setSignalingService(signalingService) }.build()
+        return webRtcPlayerBuilderProvider.get().apply {
+            setSignalingService(signalingService)
+            setMicrophonePermission(microphonePermissionGranted)
+        }.build()
     }
 
     companion object {
