@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -89,7 +90,11 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeAppView(homeAppVM: HomeAppViewModel) {
+fun HomeAppView(
+    homeAppVM: HomeAppViewModel,
+    serviceState: String,
+    onToggleServiceClick: () -> Unit
+) {
     /** Value tracking whether a user is signed-in on the app **/
     val isSignedIn: Boolean = homeAppVM.homeApp.permissionsManager.isSignedIn.collectAsState().value
     /** Values tracking what is being selected on the app **/
@@ -162,224 +167,231 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
 
     // Apply theme on the top-level view:
     GoogleHomeAPISampleAppTheme {
-        // Top-level external frame for the views:
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Top spacer to allocate space for status bar / camera notch:
-            Spacer(modifier = Modifier
-                .height(48.dp)
-                .fillMaxWidth()
-                .background(Color.Transparent))
-
-            if (showQrCodeScanner) {
-                MatterQrCodeScanner(
-                    onQrCodeScanned = { payload ->
-                        // Call the ViewModel to close the scanner and start the commissioning API call
-                        homeAppVM.onCommissionCamera(payload)
-                    },
-                    onPermissionDenied = {
-                        homeAppVM.closeQrCodeScanner()
-                        scope.launch { snackbarHostState.showSnackbar("Camera permission denied.") }
-                    }
+        Surface(modifier = Modifier.fillMaxSize()) {
+            // Top-level external frame for the views:
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Top spacer to allocate space for status bar / camera notch:
+                Spacer(modifier = Modifier
+                    .height(48.dp)
+                    .fillMaxWidth()
                 )
-                return@Column // Critical: Stop rendering the rest of the view hierarchy
-            }
 
-            // Primary frame to hold content (only shown if scanner is NOT active):
-            Column (modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .background(Color.Transparent)) {
-
-                /** Navigation Flow, displays a view depending on the viewmodel state **/
-
-                // If not signed-in, show WelcomeView:
-                if (!isSignedIn) {
-                    WelcomeView(homeAppVM)
-                }
-
-                // If a device is selected, show the device controls:
-                if (selectedDeviceVM != null) {
-                    DeviceView(homeAppVM)
-                }
-
-                // If an automation is selected, show the automation details:
-                if (selectedAutomationVM != null) {
-                    AutomationView(homeAppVM)
-                }
-
-                // If a starter is selected for a draft automation, show the starter editor:
-                if (selectedStarterVM != null) {
-                    StarterView(homeAppVM)
-                }
-
-                // If an action is selected for a draft automation, show the action editor:
-                if (selectedActionVM != null) {
-                    ActionView(homeAppVM)
-                }
-
-                // If a draft automation is selected, show the draft editor:
-                if (selectedDraftVM != null) {
-                    DraftView(homeAppVM)
-                }
-
-                // If the automation candidates are selected, show the candidates:
-                if (selectedCandidateVMs != null) {
-                    CandidatesView(homeAppVM)
-                }
-
-                // If nothing above is selected, then show one of the two main views:
-                when (selectedTab) {
-                    HomeAppViewModel.NavigationTab.DEVICES -> DevicesView(
-                        homeAppVM = homeAppVM,
-                        onRequestCreateRoom = { showCreateRoom.value = true },
-                        onRequestRoomSettings = { room -> roomSettingsFor.value = room },
-                        onRequestMoveDevice = { device -> moveDeviceFor.value = device },
-                        onRequestAddHub = { homeAppVM.startHubDiscovery(); launchHubDiscovery.value = true}
+                if (showQrCodeScanner) {
+                    MatterQrCodeScanner(
+                        onQrCodeScanned = { payload ->
+                            // Call the ViewModel to close the scanner and start the commissioning API call
+                            homeAppVM.onCommissionCamera(payload)
+                        },
+                        onPermissionDenied = {
+                            homeAppVM.closeQrCodeScanner()
+                            scope.launch { snackbarHostState.showSnackbar("Camera permission denied.") }
+                        }
                     )
-                    HomeAppViewModel.NavigationTab.AUTOMATIONS -> AutomationsView(homeAppVM)
+                    return@Column // Critical: Stop rendering the rest of the view hierarchy
                 }
-            }
 
-            if (showCreateRoom.value) {
-                val roomName = remember { mutableStateOf("") }
-                AlertDialog(
-                    onDismissRequest = { showCreateRoom.value = false },
-                    title = { Text("Create Room") },
-                    text = {
-                        OutlinedTextField(
-                            value = roomName.value,
-                            onValueChange = { roomName.value = it },
-                            label = { Text("Room name") },
-                            singleLine = true
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            val name = roomName.value.trim()
-                            if (name.isNotEmpty()) { homeAppVM.createRoomInSelectedStructure(name) }
-                            showCreateRoom.value = false
-                        }) { Text("Create") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showCreateRoom.value = false }) { Text("Cancel") }
+                // Primary frame to hold content (only shown if scanner is NOT active):
+                Column (modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()) {
+
+                    /** Navigation Flow, displays a view depending on the viewmodel state **/
+
+                    // If not signed-in, show WelcomeView:
+                    if (!isSignedIn) {
+                        WelcomeView(homeAppVM)
                     }
-                )
-            }
 
+                    // If a device is selected, show the device controls:
+                    if (selectedDeviceVM != null) {
+                        DeviceView(homeAppVM)
+                    }
 
-            roomSettingsFor.value?.let { activeRoom ->
-                ModalBottomSheet(onDismissRequest = { roomSettingsFor.value = null }) {
-                    Column(Modifier
-                               .fillMaxWidth()
-                               .padding(16.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Text("Room settings", modifier = Modifier.weight(1f))
-                            TextButton(onClick = {
-                                homeAppVM.deleteRoomFromSelectedStructure(activeRoom)
-                                roomSettingsFor.value = null
-                            }) { Text("Delete") }
-                        }
-                        val renameText = remember(activeRoom.id) {
-                            mutableStateOf(activeRoom.name.value)
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                    // If an automation is selected, show the automation details:
+                    if (selectedAutomationVM != null) {
+                        AutomationView(homeAppVM)
+                    }
+
+                    // If a starter is selected for a draft automation, show the starter editor:
+                    if (selectedStarterVM != null) {
+                        StarterView(homeAppVM)
+                    }
+
+                    // If an action is selected for a draft automation, show the action editor:
+                    if (selectedActionVM != null) {
+                        ActionView(homeAppVM)
+                    }
+
+                    // If a draft automation is selected, show the draft editor:
+                    if (selectedDraftVM != null) {
+                        DraftView(homeAppVM)
+                    }
+
+                    // If the automation candidates are selected, show the candidates:
+                    if (selectedCandidateVMs != null) {
+                        CandidatesView(homeAppVM)
+                    }
+
+                    // If nothing above is selected, then show one of the two main views:
+                    when (selectedTab) {
+                        HomeAppViewModel.NavigationTab.DEVICES -> DevicesView(
+                            homeAppVM = homeAppVM,
+                            serviceState = serviceState,
+                            onToggleServiceClick = onToggleServiceClick,
+                            onRequestCreateRoom = { showCreateRoom.value = true },
+                            onRequestRoomSettings = { room -> roomSettingsFor.value = room },
+                            onRequestMoveDevice = { device -> moveDeviceFor.value = device },
+                            onRequestAddHub = { homeAppVM.startHubDiscovery(); launchHubDiscovery.value = true}
+                        )
+                        HomeAppViewModel.NavigationTab.AUTOMATIONS -> AutomationsView(
+                            homeAppVM = homeAppVM,
+                            serviceState = serviceState,
+                            onToggleServiceClick = onToggleServiceClick
+                        )
+                    }
+                }
+
+                if (showCreateRoom.value) {
+                    val roomName = remember { mutableStateOf("") }
+                    AlertDialog(
+                        onDismissRequest = { showCreateRoom.value = false },
+                        title = { Text("Create Room") },
+                        text = {
                             OutlinedTextField(
-                                value = renameText.value,
-                                onValueChange = { renameText.value = it },
+                                value = roomName.value,
+                                onValueChange = { roomName.value = it },
                                 label = { Text("Room name") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
+                                singleLine = true
                             )
-                            Spacer(Modifier.width(12.dp))
+                        },
+                        confirmButton = {
                             TextButton(onClick = {
-                                val newName = renameText.value.trim()
-                                if (newName.isNotEmpty() && newName != activeRoom.name.value) {
-                                    homeAppVM.viewModelScope.launch {
-                                        activeRoom.renameRoom(newName)
+                                val name = roomName.value.trim()
+                                if (name.isNotEmpty()) { homeAppVM.createRoomInSelectedStructure(name) }
+                                showCreateRoom.value = false
+                            }) { Text("Create") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showCreateRoom.value = false }) { Text("Cancel") }
+                        }
+                    )
+                }
+
+
+                roomSettingsFor.value?.let { activeRoom ->
+                    ModalBottomSheet(onDismissRequest = { roomSettingsFor.value = null }) {
+                        Column(Modifier
+                                   .fillMaxWidth()
+                                   .padding(16.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Text("Room settings", modifier = Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    homeAppVM.deleteRoomFromSelectedStructure(activeRoom)
+                                    roomSettingsFor.value = null
+                                }) { Text("Delete") }
+                            }
+                            val renameText = remember(activeRoom.id) {
+                                mutableStateOf(activeRoom.name.value)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedTextField(
+                                    value = renameText.value,
+                                    onValueChange = { renameText.value = it },
+                                    label = { Text("Room name") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                TextButton(onClick = {
+                                    val newName = renameText.value.trim()
+                                    if (newName.isNotEmpty() && newName != activeRoom.name.value) {
+                                        homeAppVM.viewModelScope.launch {
+                                            activeRoom.renameRoom(newName)
+                                        }
+                                    }
+                                    roomSettingsFor.value = null
+                                }) { Text("Save") }
+                            }
+
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { roomSettingsFor.value = null }) { Text("Close") }
+                        }
+                    }
+                }
+
+                moveDeviceFor.value?.let { deviceToMove ->
+                    ModalBottomSheet(onDismissRequest = { moveDeviceFor.value = null }) {
+                        val structureVM = homeAppVM.selectedStructureVM.collectAsState().value
+                        val rooms: List<RoomViewModel> =
+                            structureVM?.roomVMs?.collectAsState()?.value ?: emptyList()
+
+                        val expanded = remember { mutableStateOf(false) }
+                        val selectedRoom = remember { mutableStateOf<RoomViewModel?>(null) }
+
+                        Column(Modifier
+                                   .fillMaxWidth()
+                                   .padding(16.dp)) {
+                            Text("Move \"${deviceToMove.name.collectAsState().value}\" to…")
+                            Spacer(Modifier.height(12.dp))
+
+                            ExposedDropdownMenuBox(
+                                expanded = expanded.value,
+                                onExpandedChange = { expanded.value = !expanded.value }
+                            ) {
+                                TextField(
+                                    readOnly = true,
+                                    value = selectedRoom.value?.name?.value ?: "Select a room",
+                                    onValueChange = {},
+                                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = expanded.value,
+                                    onDismissRequest = { expanded.value = false }
+                                ) {
+                                    rooms.forEach { room ->
+                                        val roomName by room.name.collectAsState()
+                                        DropdownMenuItem(
+                                            text = { Text(roomName) },
+                                            onClick = {
+                                                selectedRoom.value = room
+                                                expanded.value = false
+                                            }
+                                        )
                                     }
                                 }
-                                roomSettingsFor.value = null
-                            }) { Text("Save") }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = { roomSettingsFor.value = null }) { Text("Close") }
-                    }
-                }
-            }
-
-            moveDeviceFor.value?.let { deviceToMove ->
-                ModalBottomSheet(onDismissRequest = { moveDeviceFor.value = null }) {
-                    val structureVM = homeAppVM.selectedStructureVM.collectAsState().value
-                    val rooms: List<RoomViewModel> =
-                        structureVM?.roomVMs?.collectAsState()?.value ?: emptyList()
-
-                    val expanded = remember { mutableStateOf(false) }
-                    val selectedRoom = remember { mutableStateOf<RoomViewModel?>(null) }
-
-                    Column(Modifier
-                               .fillMaxWidth()
-                               .padding(16.dp)) {
-                        Text("Move \"${deviceToMove.name.collectAsState().value}\" to…")
-                        Spacer(Modifier.height(12.dp))
-
-                        ExposedDropdownMenuBox(
-                            expanded = expanded.value,
-                            onExpandedChange = { expanded.value = !expanded.value }
-                        ) {
-                            TextField(
-                                readOnly = true,
-                                value = selectedRoom.value?.name?.value ?: "Select a room",
-                                onValueChange = {},
-                                trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = expanded.value,
-                                onDismissRequest = { expanded.value = false }
-                            ) {
-                                rooms.forEach { room ->
-                                    val roomName by room.name.collectAsState()
-                                    DropdownMenuItem(
-                                        text = { Text(roomName) },
-                                        onClick = {
-                                            selectedRoom.value = room
-                                            expanded.value = false
-                                        }
-                                    )
-                                }
                             }
+
+                            Spacer(Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    selectedRoom.value?.let { target ->
+                                        homeAppVM.moveDeviceToRoom(deviceToMove, target)
+                                        moveDeviceFor.value = null
+                                    }
+                                },
+                                enabled = selectedRoom.value != null,
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Move") }
+
+                            Spacer(Modifier.height(8.dp))
+                            TextButton(onClick = { moveDeviceFor.value = null }) { Text("Close") }
                         }
-
-                        Spacer(Modifier.height(16.dp))
-                        Button(
-                            onClick = {
-                                selectedRoom.value?.let { target ->
-                                    homeAppVM.moveDeviceToRoom(deviceToMove, target)
-                                    moveDeviceFor.value = null
-                                }
-                            },
-                            enabled = selectedRoom.value != null,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Move") }
-
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = { moveDeviceFor.value = null }) { Text("Close") }
                     }
                 }
-            }
 
-            if (launchHubDiscovery.value) {
-                Dialog(
-                    onDismissRequest = { launchHubDiscovery.value = false },
-                    properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
-                ) {
-                    HubDiscoveryView(
-                        hubDiscoveryViewModel = homeAppVM.hubDiscoveryViewModel,
-                        modifier = Modifier.padding(16.dp),
-                    )
+                if (launchHubDiscovery.value) {
+                    Dialog(
+                        onDismissRequest = { launchHubDiscovery.value = false },
+                        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true),
+                    ) {
+                        HubDiscoveryView(
+                            hubDiscoveryViewModel = homeAppVM.hubDiscoveryViewModel,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
                 }
             }
         }

@@ -98,4 +98,18 @@ dependencies {
     implementation(libs.androidx.camerax.lifecycle)
     implementation(libs.androidx.camerax.view)
     implementation(libs.mlkit.barcode.scanning)
+
+    // Ktor for embedded web server
+    implementation("io.ktor:ktor-server-core:2.3.12")
+    implementation("io.ktor:ktor-server-cio:2.3.12")
+    implementation("io.ktor:ktor-server-websockets:2.3.12")
+
+    // Timber for logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+
+    // Gson for JSON serialization
+    implementation("com.google.code.gson:gson:2.11.0")
+
+    // LocalBroadcastManager
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 }

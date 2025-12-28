@@ -15,13 +15,31 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp
 
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.ServiceConnection
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.example.googlehomeapisampleapp.service.GhBridgeConstants
+import com.example.googlehomeapisampleapp.service.GhBridgeService
+import com.example.googlehomeapisampleapp.util.isIgnoringBatteryOptimizations
 import com.example.googlehomeapisampleapp.view.HomeAppView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -39,6 +57,26 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var homeClientProvider: HomeClientProvider
     lateinit var homeAppVM: HomeAppViewModel
+
+    //<editor-fold desc="GH Bridge Service State">
+    private var serviceState by mutableStateOf(GhBridgeConstants.STATE_STOPPED)
+
+    private var ghBridgeService: GhBridgeService? = null
+    private var isBound = false
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            val binder = service as GhBridgeService.LocalBinder
+            ghBridgeService = binder.getService()
+            isBound = true
+            ghBridgeService?.homeApp = homeAppVM.homeApp
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            isBound = false
+        }
+    }
+    //</editor-fold>
 
     /**
      * Called when the activity is first created.
@@ -62,7 +100,10 @@ class MainActivity : ComponentActivity() {
         // Call to make the app allocate the entire screen:
         enableEdgeToEdge()
         // Set the content of the screen to display the app:
-        setContent { HomeAppView(homeAppVM) }
+        setContent {
+            BatteryOptimizationDialog()
+            HomeAppView(homeAppVM, serviceState, ::toggleService)
+        }
 
         // Receive the intent extra data to see if it is from AccountSwitchActivity.kt
         val isFromAccountSwitch = intent.getBooleanExtra(EXTRA_FROM_ACCOUNT_SWITCH, false)
@@ -88,6 +129,111 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Bind to the service if it is running
+        if (serviceState == GhBridgeConstants.STATE_RUNNING) {
+            Intent(this, GhBridgeService::class.java).also {
+                bindService(it, connection, Context.BIND_AUTO_CREATE)
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val filter = IntentFilter(GhBridgeConstants.ACTION_SERVICE_STATUS)
+        LocalBroadcastManager.getInstance(this).registerReceiver(serviceStatusReceiver, filter)
+        // Request initial status
+        val requestStatusIntent = Intent(GhBridgeConstants.ACTION_REQUEST_SERVICE_STATUS)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(requestStatusIntent)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(serviceStatusReceiver)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Unbind from the service
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
+    }
+
+    //<editor-fold desc="GH Bridge Service Management">
+    private fun toggleService() {
+        Log.d(TAG, "Toggle service called. Current state: $serviceState")
+        if (serviceState == GhBridgeConstants.STATE_RUNNING) {
+            stopGhBridgeService()
+        } else {
+            startGhBridgeService()
+        }
+    }
+
+    private fun startGhBridgeService() {
+        val serviceIntent = Intent(this, GhBridgeService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        Intent(this, GhBridgeService::class.java).also {
+            bindService(it, connection, Context.BIND_AUTO_CREATE)
+        }
+    }
+
+    private fun stopGhBridgeService() {
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
+        val serviceIntent = Intent(this, GhBridgeService::class.java)
+        stopService(serviceIntent)
+    }
+
+    // Setup receiver for service status updates
+    private val serviceStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            serviceState = intent.getStringExtra(GhBridgeConstants.EXTRA_SERVICE_STATE) ?: "UNKNOWN"
+        }
+    }
+    //</editor-fold>
+
+    //<editor-fold desc="Battery Optimization Dialog">
+    @Composable
+    private fun BatteryOptimizationDialog() {
+        var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) {
+            if (!isIgnoringBatteryOptimizations(this@MainActivity)) {
+                showBatteryOptimizationDialog = true
+            }
+        }
+
+        if (showBatteryOptimizationDialog) {
+            AlertDialog(
+                onDismissRequest = { showBatteryOptimizationDialog = false },
+                title = { Text("Battery Optimization") },
+                text = { Text("To ensure the bridge service runs reliably when the screen is off, please set battery usage to \"Unrestricted\" for this app in the settings.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        val uri = Uri.fromParts("package", packageName, null)
+                        intent.data = uri
+                        startActivity(intent)
+                        showBatteryOptimizationDialog = false
+                    }) { Text("Open Settings") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBatteryOptimizationDialog = false }) { Text("Dismiss") }
+                }
+            )
+        }
+    }
+    //</editor-fold>
+
     companion object {
         const val TAG = "MainActivity"
         const val EXTRA_FROM_ACCOUNT_SWITCH = "fromAccountSwitch"
@@ -102,7 +248,7 @@ class MainActivity : ComponentActivity() {
         /**
          * Shows a warning message to the user and logs it.
          *
-         * @param caller The object calling this function.
+         * @param caller The object calling this afunction.
          * @param message The warning message to display.
          */
         fun showWarning(caller: Any, message: String) { logger.log(caller, message, Logger.LogLevel.WARNING) }

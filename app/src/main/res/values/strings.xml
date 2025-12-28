@@ -71,4 +71,8 @@
     <string name="camera_power_setting">Camera Power</string>
     <string name="audio_recording_setting">Audio Recording</string>
 
+    <string name="service_start">Start Service</string>
+    <string name="service_stop">Stop Service</string>
+    <string name="service_warning_stopped">Service is stopped.</string>
+    <string name="service_warning_wifi">Wi-Fi is not connected.</string>
 </resources>

@@ -24,15 +24,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -55,9 +58,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.googlehomeapisampleapp.R
+import com.example.googlehomeapisampleapp.service.GhBridgeConstants
 import com.example.googlehomeapisampleapp.view.shared.TabbedMenuView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.AutomationViewModel
@@ -121,7 +126,11 @@ fun AutomationsAccountButton (homeAppVM: HomeAppViewModel) {
 }
 
 @Composable
-fun AutomationsView (homeAppVM: HomeAppViewModel) {
+fun AutomationsView (
+    homeAppVM: HomeAppViewModel,
+    serviceState: String,
+    onToggleServiceClick: () -> Unit
+) {
     val scope: CoroutineScope = rememberCoroutineScope()
     var expanded: Boolean by remember { mutableStateOf(false) }
 
@@ -130,7 +139,13 @@ fun AutomationsView (homeAppVM: HomeAppViewModel) {
     val structureName: String = selectedStructureVM?.name ?: stringResource(R.string.automations_text_loading)
     
     Column {
-        AutomationsTopBar("", listOf { AutomationsAccountButton(homeAppVM) })
+        AutomationsTopBar(
+            "", 
+            listOf(
+                { ServiceStatusIndicator(serviceState, onToggleServiceClick) },
+                { AutomationsAccountButton(homeAppVM) } 
+            )
+        )
 
         Box (modifier = Modifier.weight(1f)) {
 
@@ -213,15 +228,43 @@ fun AutomationListComponent (homeAppVM: HomeAppViewModel) {
 
 @Composable
 fun AutomationsTopBar (title: String, buttons: List<@Composable () -> Unit>) {
-    Box (Modifier.height(64.dp).fillMaxWidth().padding(horizontal = 16.dp)) {
-        Row (Modifier.height(64.dp).fillMaxWidth().background(Color.Transparent), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Text(title, fontSize = 24.sp)
-        }
-
-        Row (Modifier.height(64.dp).fillMaxWidth().background(Color.Transparent), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-            for (button in buttons) {
+    Row(
+        modifier = Modifier
+            .height(64.dp)
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(title, fontSize = 24.sp, textAlign = TextAlign.Center)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            buttons.forEach { button ->
                 button()
             }
         }
     }
 }
+
+//<editor-fold desc="GH Bridge Service Status Indicator">
+@Composable
+fun ServiceStatusIndicator(serviceState: String, onToggleServiceClick: () -> Unit) {
+    val serviceIconColor = when (serviceState) {
+        GhBridgeConstants.STATE_RUNNING -> Color.Green
+        GhBridgeConstants.STATE_STOPPED -> Color.Red
+        else -> Color.Yellow
+    }
+    val serviceContentDescription = when (serviceState) {
+        GhBridgeConstants.STATE_RUNNING -> "Service is running. Click to stop."
+        GhBridgeConstants.STATE_STOPPED -> "Service is stopped. Click to start."
+        else -> "Service is in an unknown state."
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clickable { onToggleServiceClick() }
+    ) {
+        Icon(Icons.Default.Cloud, contentDescription = serviceContentDescription, tint = serviceIconColor)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(serviceState, color = serviceIconColor, fontSize = 12.sp)
+    }
+}
+//</editor-fold>
