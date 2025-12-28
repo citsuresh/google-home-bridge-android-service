@@ -75,165 +75,176 @@ class GhBridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         Timber.d("GhBridgeService created.")
-        try {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicastLock = wifiManager.createMulticastLock("ghbridge-mdns").apply {
-                setReferenceCounted(true)
-                acquire()
-            }
-
-            startServer()
-            advertiseMdns()
-
-            serviceState = GhBridgeConstants.STATE_RUNNING
-            lastServiceInfo = "Service running on port $servicePort"
-            broadcastServiceStatus(serviceState, lastServiceInfo)
-            updateNotification(lastServiceInfo!!)
-        } catch (e: Exception) {
-            Timber.e(e, "Service failed to start.")
-            serviceState = GhBridgeConstants.STATE_FAILED
-            lastServiceInfo = e.message ?: "An unknown error occurred."
-            broadcastServiceStatus(serviceState, lastServiceInfo)
-            updateNotification(lastServiceInfo!!)
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        multicastLock = wifiManager.createMulticastLock("ghbridge-mdns").apply {
+            setReferenceCounted(true)
+            acquire()
         }
+        startServer()
     }
 
     private fun startServer() {
-        Timber.d("Attempting to start Ktor server on port $servicePort")
-        server = embeddedServer(CIO, port = servicePort, host = "0.0.0.0") {
-            install(WebSockets)
-            routing {
-                webSocket("/ws") {
-                    for (frame in incoming) {
-                        if (frame is Frame.Text) {
-                            val text = frame.readText()
-                            Timber.d("Received message: $text")
-                            val json: JsonObject = JsonParser.parseString(text).asJsonObject
-                            val cmd = json.get("cmd").asString
-                            val id = json.get("id").asString
+        serviceScope.launch {
+            try {
+                Timber.d("Attempting to start Ktor server on port $servicePort")
 
-                            when (cmd) {
-                                "list" -> {
-                                    GlobalScope.launch {
-                                        val devices = mutableListOf<ClientDevice>()
-                                        try {
-                                            val structures: Set<Structure> = homeApp!!.homeClient.structures().first()
-                                            for (structure in structures) {
-                                                val deviceSet: Set<HomeDevice> = structure.devices().first()
-                                                for (device in deviceSet) {
-                                                    val deviceTypes = device.types().first()
-                                                    val fallbackPriorityOrder = listOf(
-                                                        GoogleDoorbellDevice::class,
-                                                        GoogleCameraDevice::class,
-                                                        OnOffLightDevice::class
-                                                    )
-                                                    val primaryType =
-                                                        deviceTypes.find { it.metadata.isPrimaryType }
-                                                            ?: fallbackPriorityOrder
-                                                                .asSequence()
-                                                                .mapNotNull { priorityClass ->
-                                                                    deviceTypes.find { priorityClass.isInstance(it) }
-                                                                }
-                                                                .firstOrNull()
-                                                            ?: deviceTypes.singleOrNull()
-                                                            ?: UnknownDeviceType()
+                val ktorServer = embeddedServer(CIO, port = servicePort, host = "0.0.0.0") {
+                    install(WebSockets)
+                    routing {
+                        webSocket("/ws") {
+                            for (frame in incoming) {
+                                if (frame is Frame.Text) {
+                                    val text = frame.readText()
+                                    Timber.d("Received message: $text")
+                                    val json: JsonObject = JsonParser.parseString(text).asJsonObject
+                                    val cmd = json.get("cmd").asString
+                                    val id = json.get("id").asString
 
-                                                    val onOffTrait = primaryType.traits().firstOrNull { it is OnOff } as? OnOff
-
-                                                    devices.add(
-                                                        ClientDevice(
-                                                            id = device.id.id,
-                                                            name = device.name,
-                                                            type = deviceTypes.firstOrNull()?.toString() ?: "Unknown",
-                                                            state = DeviceState(
-                                                                online = device.sourceConnectivity.connectivityState == ConnectivityState.ONLINE,
-                                                                on = onOffTrait?.onOff ?: false
+                                    when (cmd) {
+                                        "list" -> {
+                                            GlobalScope.launch {
+                                                val devices = mutableListOf<ClientDevice>()
+                                                try {
+                                                    val structures: Set<Structure> = homeApp!!.homeClient.structures().first()
+                                                    for (structure in structures) {
+                                                        val deviceSet: Set<HomeDevice> = structure.devices().first()
+                                                        for (device in deviceSet) {
+                                                            val deviceTypes = device.types().first()
+                                                            val fallbackPriorityOrder = listOf(
+                                                                GoogleDoorbellDevice::class,
+                                                                GoogleCameraDevice::class,
+                                                                OnOffLightDevice::class
                                                             )
-                                                        )
-                                                    )
-                                                }
-                                            }
-                                            val response = ClientResponse(id, data = DeviceListData(devices))
-                                            val gson = Gson()
-                                            val responseJson = gson.toJson(response)
-                                            send(responseJson)
+                                                            val primaryType =
+                                                                deviceTypes.find { it.metadata.isPrimaryType }
+                                                                    ?: fallbackPriorityOrder
+                                                                        .asSequence()
+                                                                        .mapNotNull { priorityClass ->
+                                                                            deviceTypes.find { priorityClass.isInstance(it) }
+                                                                        }
+                                                                        .firstOrNull()
+                                                                    ?: deviceTypes.singleOrNull()
+                                                                    ?: UnknownDeviceType()
 
-                                        } catch (e: Exception) {
-                                            val error = BridgeError(code = e.javaClass.simpleName, message = e.message ?: "Unknown error")
-                                            val response = ErrorResponse(id, error = error)
-                                            val gson = Gson()
-                                            val responseJson = gson.toJson(response)
-                                            send(responseJson)
-                                        }
-                                    }
-                                }
-                                "toggle" -> {
-                                    GlobalScope.launch {
-                                        try {
-                                            val deviceIdElement = json.get("deviceId")
+                                                            val onOffTrait = primaryType.traits().firstOrNull { it is OnOff } as? OnOff
 
-                                            if (deviceIdElement == null || deviceIdElement.isJsonNull) {
-                                                throw IllegalArgumentException("deviceId must be provided.")
-                                            }
-
-                                            val deviceId = deviceIdElement.asString
-
-                                            val structures: Set<Structure> = homeApp!!.homeClient.structures().first()
-                                            for (structure in structures) {
-                                                val deviceSet: Set<HomeDevice> = structure.devices().first()
-                                                val device = deviceSet.find { it.id.id == deviceId }
-                                                if (device != null) {
-                                                    val typeSet = device.types().first()
-                                                    val fallbackPriorityOrder = listOf(
-                                                        GoogleDoorbellDevice::class,
-                                                        GoogleCameraDevice::class,
-                                                        OnOffLightDevice::class
-                                                    )
-                                                    val primaryType =
-                                                        typeSet.find { it.metadata.isPrimaryType }
-                                                            ?: fallbackPriorityOrder
-                                                                .asSequence()
-                                                                .mapNotNull { priorityClass ->
-                                                                    typeSet.find { priorityClass.isInstance(it) }
-                                                                }
-                                                                .firstOrNull()
-                                                            ?: typeSet.singleOrNull()
-                                                            ?: UnknownDeviceType()
-                                                    val onOffTrait = primaryType.traits().first { it is OnOff } as OnOff
-
-                                                    val currentState = onOffTrait.onOff ?: false
-                                                    if (currentState) {
-                                                        onOffTrait.off()
-                                                    } else {
-                                                        onOffTrait.on()
+                                                            devices.add(
+                                                                ClientDevice(
+                                                                    id = device.id.id,
+                                                                    name = device.name,
+                                                                    type = deviceTypes.firstOrNull()?.toString() ?: "Unknown",
+                                                                    state = DeviceState(
+                                                                        online = device.sourceConnectivity.connectivityState == ConnectivityState.ONLINE,
+                                                                        on = onOffTrait?.onOff ?: false
+                                                                    )
+                                                                )
+                                                            )
+                                                        }
                                                     }
-
-                                                    val response = ClientResponse(id, data = DeviceListData(listOf()))
+                                                    val response = ClientResponse(id, data = DeviceListData(devices))
                                                     val gson = Gson()
                                                     val responseJson = gson.toJson(response)
                                                     send(responseJson)
-                                                    break
+
+                                                } catch (e: Exception) {
+                                                    val error = BridgeError(code = e.javaClass.simpleName, message = e.message ?: "Unknown error")
+                                                    val response = ErrorResponse(id, error = error)
+                                                    val gson = Gson()
+                                                    val responseJson = gson.toJson(response)
+                                                    send(responseJson)
                                                 }
                                             }
-                                        } catch (e: Exception) {
-                                            val error = BridgeError(code = e.javaClass.simpleName, message = e.message ?: "Unknown error")
-                                            val response = ErrorResponse(id, error = error)
-                                            val gson = Gson()
-                                            val responseJson = gson.toJson(response)
-                                            send(responseJson)
+                                        }
+                                        "toggle" -> {
+                                            GlobalScope.launch {
+                                                try {
+                                                    val deviceIdElement = json.get("deviceId")
+
+                                                    if (deviceIdElement == null || deviceIdElement.isJsonNull) {
+                                                        throw IllegalArgumentException("deviceId must be provided.")
+                                                    }
+
+                                                    val deviceId = deviceIdElement.asString
+
+                                                    val structures: Set<Structure> = homeApp!!.homeClient.structures().first()
+                                                    for (structure in structures) {
+                                                        val deviceSet: Set<HomeDevice> = structure.devices().first()
+                                                        val device = deviceSet.find { it.id.id == deviceId }
+                                                        if (device != null) {
+                                                            val typeSet = device.types().first()
+                                                            val fallbackPriorityOrder = listOf(
+                                                                GoogleDoorbellDevice::class,
+                                                                GoogleCameraDevice::class,
+                                                                OnOffLightDevice::class
+                                                            )
+                                                            val primaryType =
+                                                                typeSet.find { it.metadata.isPrimaryType }
+                                                                    ?: fallbackPriorityOrder
+                                                                        .asSequence()
+                                                                        .mapNotNull { priorityClass ->
+                                                                            typeSet.find { priorityClass.isInstance(it) }
+                                                                        }
+                                                                        .firstOrNull()
+                                                                    ?: typeSet.singleOrNull()
+                                                                    ?: UnknownDeviceType()
+                                                            val onOffTrait = primaryType.traits().first { it is OnOff } as OnOff
+
+                                                            val currentState = onOffTrait.onOff ?: false
+                                                            if (currentState) {
+                                                                onOffTrait.off()
+                                                            } else {
+                                                                onOffTrait.on()
+                                                            }
+
+                                                            val response = ClientResponse(id, data = DeviceListData(listOf()))
+                                                            val gson = Gson()
+                                                            val responseJson = gson.toJson(response)
+                                                            send(responseJson)
+                                                            break
+                                                        }
+                                                    }
+                                                } catch (e: Exception) {
+                                                    val error = BridgeError(code = e.javaClass.simpleName, message = e.message ?: "Unknown error")
+                                                    val response = ErrorResponse(id, error = error)
+                                                    val gson = Gson()
+                                                    val responseJson = gson.toJson(response)
+                                                    send(responseJson)
+                                                }
+                                            }
+                                        }
+                                        else -> {
+                                            // send(text) // Just echo the message back for other commands
                                         }
                                     }
-                                }
-                                else -> {
-                                    // send(text) // Just echo the message back for other commands
                                 }
                             }
                         }
                     }
+                    // Subscribe to the ApplicationStarted event to know when the server is ready
+                    environment.monitor.subscribe(ApplicationStarted) {
+                        Timber.d("Ktor server started successfully. Advertising service.")
+                        serviceState = GhBridgeConstants.STATE_RUNNING
+                        lastServiceInfo = "Service running on port $servicePort"
+                        broadcastServiceStatus(serviceState, lastServiceInfo)
+                        updateNotification(lastServiceInfo!!)
+                        advertiseMdns()
+                    }
                 }
+                server = ktorServer
+
+                // Start the server and wait for it to stop. This will block the current coroutine.
+                ktorServer.start(wait = true)
+
+            } catch (e: Exception) {
+                // This will catch exceptions from embeddedServer and start, like BindException
+                Timber.e(e, "Failed to start Ktor server.")
+                serviceState = GhBridgeConstants.STATE_FAILED
+                lastServiceInfo = e.message ?: "Failed to start Ktor server."
+                broadcastServiceStatus(serviceState, lastServiceInfo)
+                updateNotification(lastServiceInfo!!)
+                stopSelf() // Stop the service if the server fails to start
             }
-        }.start(wait = false)
-        Timber.d("Ktor server started successfully.")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -255,10 +266,10 @@ class GhBridgeService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Timber.d("GhBridgeService destroyed.")
-        serviceJob.cancel()
-        server?.stop(1000, 3000)
+        server?.stop(1000, 3000) // Trigger server shutdown
         stopAdvertiseMdns()
         multicastLock?.release()
+        serviceJob.cancel() // Cancel all coroutines
         serviceState = GhBridgeConstants.STATE_STOPPED
         lastServiceInfo = "Service stopped."
         broadcastServiceStatus(serviceState, lastServiceInfo)

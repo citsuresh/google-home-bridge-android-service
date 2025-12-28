@@ -166,10 +166,11 @@ class MainActivity : ComponentActivity() {
     //<editor-fold desc="GH Bridge Service Management">
     private fun toggleService() {
         Log.d(TAG, "Toggle service called. Current state: $serviceState")
-        if (serviceState == GhBridgeConstants.STATE_RUNNING) {
-            stopGhBridgeService()
-        } else {
-            startGhBridgeService()
+        when (serviceState) {
+            GhBridgeConstants.STATE_RUNNING -> stopGhBridgeService()
+            GhBridgeConstants.STATE_STOPPED, GhBridgeConstants.STATE_FAILED -> startGhBridgeService()
+            // Do nothing in intermediate states.
+            GhBridgeConstants.STATE_STARTING, GhBridgeConstants.STATE_STOPPING -> { }
         }
     }
 
