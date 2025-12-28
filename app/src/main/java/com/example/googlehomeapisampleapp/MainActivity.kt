@@ -201,6 +201,8 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             serviceState = intent.getStringExtra(GhBridgeConstants.EXTRA_SERVICE_STATE) ?: "UNKNOWN"
             serviceInfo = intent.getStringExtra(GhBridgeConstants.EXTRA_SERVICE_INFO)
+            val message = serviceInfo ?: serviceState
+            showInfo(this, "Service status: $message")
         }
     }
 
