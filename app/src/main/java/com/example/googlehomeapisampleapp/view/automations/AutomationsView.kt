@@ -55,21 +55,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.googlehomeapisampleapp.R
-import com.example.googlehomeapisampleapp.service.GhBridgeConstants
+import com.example.googlehomeapisampleapp.view.shared.ServiceLogDialog
+import com.example.googlehomeapisampleapp.view.shared.ServiceLogsMenuItem
+import com.example.googlehomeapisampleapp.view.shared.ServiceStatusIndicator
 import com.example.googlehomeapisampleapp.view.shared.TabbedMenuView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.AutomationViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.StructureViewModel
 import com.google.home.automation.Action
 import com.google.home.automation.Starter
-import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -77,15 +77,8 @@ import kotlinx.coroutines.launch
 fun AutomationsAccountButton (homeAppVM: HomeAppViewModel) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
-    /**
-     * UI Row containing:
-     * - Account Icon Button: triggers a permission request using PermissionsManager.
-     * - Overflow Menu: opens a dropdown with a "Revoke Permissions" option.
-     *
-     * Selecting "Revoke Permissions" launches an intent to Google’s account management
-     * page for manually revoking app access.
-     *
-     */
+    var showServiceLogs by remember { mutableStateOf(false) }
+
     Row {
         IconButton(
             onClick = { homeAppVM.homeApp.permissionsManager.requestPermissions(true) },
@@ -122,7 +115,12 @@ fun AutomationsAccountButton (homeAppVM: HomeAppViewModel) {
                 text = { Text("Google Sign-In") },
                 onClick = { homeAppVM.signInWithGoogleAccount(context) },
             )
+            ServiceLogsMenuItem { showServiceLogs = true }
         }
+    }
+
+    if (showServiceLogs) {
+        ServiceLogDialog { showServiceLogs = false }
     }
 }
 
@@ -250,37 +248,3 @@ fun AutomationsTopBar (title: String, buttons: List<@Composable () -> Unit>) {
     }
 }
 
-//<editor-fold desc="GH Bridge Service Status Indicator">
-@Composable
-fun ServiceStatusIndicator(serviceState: String, serviceInfo: String?, onToggleServiceClick: () -> Unit) {
-    val serviceIconColor = when (serviceState) {
-        GhBridgeConstants.STATE_RUNNING -> Color(0xFF008000)
-        GhBridgeConstants.STATE_STOPPED -> Color.Red
-        GhBridgeConstants.STATE_STARTING, GhBridgeConstants.STATE_STOPPING -> Color.Gray
-        else -> Color.Yellow
-    }
-    val serviceContentDescription = when (serviceState) {
-        GhBridgeConstants.STATE_RUNNING -> "Service is running. Click to stop."
-        GhBridgeConstants.STATE_STOPPED -> "Service is stopped. Click to start."
-        GhBridgeConstants.STATE_STARTING -> "Service is starting."
-        GhBridgeConstants.STATE_STOPPING -> "Service is stopping."
-        else -> "Service is in an unknown state."
-    }
-    val serviceText = when (serviceState) {
-        GhBridgeConstants.STATE_FAILED -> serviceInfo ?: "Service failed."
-        else -> serviceState.lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.clickable { onToggleServiceClick() }
-    ) {
-        Icon(
-            painter = painterResource(id = R.drawable.ic_service_status),
-            contentDescription = serviceContentDescription,
-            tint = serviceIconColor
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(serviceText, color = serviceIconColor, fontSize = 12.sp)
-    }
-}
-//</editor-fold>
