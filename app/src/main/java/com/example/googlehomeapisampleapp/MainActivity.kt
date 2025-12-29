@@ -98,6 +98,10 @@ class MainActivity : ComponentActivity() {
         homeAppVM = HomeAppViewModel(homeApp)
         Log.d(TAG, "homeAppVM created")
 
+        // Get the service state and info
+        serviceState = GhBridgeService.serviceState
+        serviceInfo = GhBridgeService.lastServiceInfo
+
         // Call to make the app allocate the entire screen:
         enableEdgeToEdge()
         // Set the content of the screen to display the app:
