@@ -102,6 +102,11 @@ class MainActivity : ComponentActivity() {
         serviceState = GhBridgeService.serviceState
         serviceInfo = GhBridgeService.lastServiceInfo
 
+        // Start the service if it is not running
+        if (serviceState != GhBridgeConstants.STATE_RUNNING && serviceState != GhBridgeConstants.STATE_STARTING) {
+            startGhBridgeService()
+        }
+
         // Call to make the app allocate the entire screen:
         enableEdgeToEdge()
         // Set the content of the screen to display the app:
