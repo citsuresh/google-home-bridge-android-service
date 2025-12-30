@@ -22,6 +22,8 @@ import com.google.gson.JsonParser
 import com.google.home.ConnectivityState
 import com.google.home.DeviceType
 import com.google.home.HomeDevice
+import com.google.home.HomeError
+import com.google.home.HomeException
 import com.google.home.Structure
 import com.google.home.Trait
 import com.google.home.automation.UnknownDeviceType
@@ -35,6 +37,7 @@ import io.ktor.server.engine.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import java.util.Collections
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,6 +62,10 @@ class GhBridgeService : Service() {
     var homeApp: HomeApp? = null
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+
+    // For preventing concurrent commands
+    private val togglingDevices = Collections.synchronizedSet(mutableSetOf<String>())
+
 
     inner class LocalBinder : Binder() {
         fun getService(): GhBridgeService = this@GhBridgeService
@@ -148,7 +155,20 @@ class GhBridgeService : Service() {
                                                     val responseJson = gson.toJson(response)
                                                     send(responseJson)
 
+                                                } catch (e: HomeException) {
+                                                    val errorName = getHomeExceptionErrorName(e.error.code)
+                                                    val subErrorsString = e.subErrors.map { (key, value) -> "$key: ${getHomeExceptionErrorName(value.code)} - ${value.message}" }.joinToString()
+                                                    Timber.e(e, "HomeException in 'list' command. error: $errorName, subErrors: $subErrorsString")
+                                                    val error = BridgeError(
+                                                        code = "HomeException",
+                                                        message = "error: $errorName - ${e.error.message}, subErrors: $subErrorsString, message: ${e.message}"
+                                                    )
+                                                    val response = ErrorResponse(id, error = error)
+                                                    val gson = Gson()
+                                                    val responseJson = gson.toJson(response)
+                                                    send(responseJson)
                                                 } catch (e: Exception) {
+                                                    Timber.e(e, "Exception in 'list' command")
                                                     val error = BridgeError(code = e.javaClass.simpleName, message = e.message ?: "Unknown error")
                                                     val response = ErrorResponse(id, error = error)
                                                     val gson = Gson()
@@ -159,6 +179,7 @@ class GhBridgeService : Service() {
                                         }
                                         "toggle" -> {
                                             serviceScope.launch {
+                                                var deviceId: String? = null
                                                 try {
                                                     if (homeApp == null) {
                                                         throw IllegalStateException("Service not initialized yet.")
@@ -167,13 +188,20 @@ class GhBridgeService : Service() {
                                                     if (deviceIdElement == null || deviceIdElement.isJsonNull) {
                                                         throw IllegalArgumentException("deviceId must be provided.")
                                                     }
-                                                    val deviceId = deviceIdElement.asString
+                                                    deviceId = deviceIdElement.asString
+
+                                                    if (togglingDevices.contains(deviceId)) {
+                                                        throw IllegalStateException("Device is already being toggled.")
+                                                    }
+                                                    togglingDevices.add(deviceId)
 
                                                     val structures: Set<Structure> = homeApp!!.homeClient.structures().first()
+                                                    var deviceFound = false
                                                     for (structure in structures) {
                                                         val deviceSet: Set<HomeDevice> = structure.devices().first()
                                                         val device = deviceSet.find { it.id.id == deviceId }
                                                         if (device != null) {
+                                                            deviceFound = true
                                                             val typeSet = device.types().first()
                                                             val fallbackPriorityOrder = listOf(
                                                                 GoogleDoorbellDevice::class,
@@ -199,19 +227,49 @@ class GhBridgeService : Service() {
                                                                 onOffTrait.on()
                                                             }
 
-                                                            val response = ClientResponse(id, data = DeviceListData(listOf()))
+                                                            // After the toggle, get the updated state
+                                                            val updatedOnOffTrait = primaryType.traits().first { it is OnOff } as OnOff
+                                                            val updatedDeviceState = ClientDevice(
+                                                                id = device.id.id,
+                                                                name = device.name,
+                                                                type = typeSet.firstOrNull()?.toString() ?: "Unknown",
+                                                                state = DeviceState(
+                                                                    online = device.sourceConnectivity.connectivityState == ConnectivityState.ONLINE,
+                                                                    on = updatedOnOffTrait.onOff ?: false
+                                                                )
+                                                            )
+
+                                                            val response = ClientResponse(id, data = DeviceListData(listOf(updatedDeviceState)))
                                                             val gson = Gson()
                                                             val responseJson = gson.toJson(response)
                                                             send(responseJson)
                                                             break
                                                         }
                                                     }
+                                                    if (!deviceFound) {
+                                                        throw IllegalArgumentException("Device not found.")
+                                                    }
+                                                } catch (e: HomeException) {
+                                                    val errorName = getHomeExceptionErrorName(e.error.code)
+                                                    val subErrorsString = e.subErrors.map { (key, value) -> "$key: ${getHomeExceptionErrorName(value.code)} - ${value.message}" }.joinToString()
+                                                    Timber.e(e, "HomeException in 'toggle' command. error: $errorName, subErrors: $subErrorsString")
+                                                    val error = BridgeError(
+                                                        code = "HomeException",
+                                                        message = "error: $errorName - ${e.error.message}, subErrors: $subErrorsString, message: ${e.message}"
+                                                    )
+                                                    val response = ErrorResponse(id, error = error)
+                                                    val gson = Gson()
+                                                    val responseJson = gson.toJson(response)
+                                                    send(responseJson)
                                                 } catch (e: Exception) {
+                                                    Timber.e(e, "Exception in 'toggle' command")
                                                     val error = BridgeError(code = e.javaClass.simpleName, message = e.message ?: "Unknown error")
                                                     val response = ErrorResponse(id, error = error)
                                                     val gson = Gson()
                                                     val responseJson = gson.toJson(response)
                                                     send(responseJson)
+                                                } finally {
+                                                    deviceId?.let { togglingDevices.remove(it) }
                                                 }
                                             }
                                         }
@@ -307,6 +365,35 @@ class GhBridgeService : Service() {
             )
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(serviceChannel)
+        }
+    }
+
+    private fun getHomeExceptionErrorName(code: Int): String {
+        return when (code) {
+            HomeException.Codes.ABORTED -> "ABORTED"
+            HomeException.Codes.ALREADY_EXISTS -> "ALREADY_EXISTS"
+            HomeException.Codes.API_NOT_CONNECTED -> "API_NOT_CONNECTED"
+            HomeException.Codes.CANCELLED -> "CANCELLED"
+            HomeException.Codes.COMMAND_FAILED -> "COMMAND_FAILED"
+            HomeException.Codes.CURSOR_WINDOW_NOT_SUPPORTED -> "CURSOR_WINDOW_NOT_SUPPORTED"
+            HomeException.Codes.DATA_LOSS -> "DATA_LOSS"
+            HomeException.Codes.DEADLINE_EXCEEDED -> "DEADLINE_EXCEEDED"
+            HomeException.Codes.DECOMMISSIONING_INELIGIBLE -> "DECOMMISSIONING_INELIGIBLE"
+            HomeException.Codes.FAILED_PRECONDITION -> "FAILED_PRECONDITION"
+            HomeException.Codes.INTERNAL -> "INTERNAL"
+            HomeException.Codes.INVALID_ARGUMENT -> "INVALID_ARGUMENT"
+            HomeException.Codes.INVALID_DATA_HOLDER -> "INVALID_DATA_HOLDER"
+            HomeException.Codes.NOT_FOUND -> "NOT_FOUND"
+            HomeException.Codes.OUT_OF_RANGE -> "OUT_OF_RANGE"
+            HomeException.Codes.PERMISSION_DENIED -> "PERMISSION_DENIED"
+            HomeException.Codes.RESOURCE_EXHAUSTED -> "RESOURCE_EXHAUSTED"
+            HomeException.Codes.SDK_INITIALIZATION_MISSING_INFO -> "SDK_INITIALIZATION_MISSING_INFO"
+            HomeException.Codes.UNAUTHENTICATED -> "UNAUTHENTICATED"
+            HomeException.Codes.UNAVAILABLE -> "UNAVAILABLE"
+            HomeException.Codes.UNIMPLEMENTED -> "UNIMPLEMENTED"
+            HomeException.Codes.UNKNOWN -> "UNKNOWN"
+            HomeException.Codes.WRITE_FAILED -> "WRITE_FAILED"
+            else -> "Unknown Error Code"
         }
     }
 
